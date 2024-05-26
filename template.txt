@@ -4,5 +4,5 @@
 \usetikzlibrary{arrows.meta}
 
 \begin{document}
-  \input{./tikz/8.tikz}
+  \input{%REPLACE%}
 \end{document}

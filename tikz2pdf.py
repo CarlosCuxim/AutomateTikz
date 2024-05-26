@@ -1,44 +1,115 @@
-import os
-import re
+from os.path import splitext,getmtime
+from os import listdir
 
-TIKZ_FOLDER = "./tikz/"
-PDF_FOLDER = "./pdf/"
-COMPILER = "latexmk"
-FLAGS = "-interaction=nonstopmode -lualatex"
-TEMPLATE_NAME = "main.tex"
-REPLACE_PATTERN = r'\\input\{[^{}]*?\.tikz\}'
+import time
+import subprocess
 
-
-
-files_names = os.listdir(TIKZ_FOLDER)
-
+TIKZ_FOLDER = "tikz/"
+PDF_FOLDER = "pdf/"
+COMPILER = "lualatex"
+FLAGS = f"-interaction=nonstopmode"
+TEMPLATE_NAME = "template.txt"
+REPLACE_PATTERN = '%REPLACE%'
 
 
+# Convierte la información de tiempo en un string
+def time2str(time_info):
+    return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time_info))
 
-for doc_name in files_names:
-
-    # Nombres sin extensiones
-    name = os.path.splitext(doc_name)[0]
-    template_name = os.path.splitext(TEMPLATE_NAME)[0]
+# Abre el archivo .changelog y lo convierte a un diccionario
+def getModificationInfo():
+    with open(".changelog", 'r') as change_file:
+        content = change_file.read()
     
-    # Modificación del archivo de plantilla
+    if ':' not in content:
+        return {}
+
+    content = content.split('\n')
+    dict_info = {}
+
+    for item in content:
+        key, value = item.split(':', 1)
+        dict_info[key] = value
+    
+    return dict_info
+
+# Guarda el diccionario en el archivo .changelog
+def saveModificationInfo(info_dict):
+    content = ""
+    for key in info_dict:
+        content += key + ":" + info_dict[key] + '\n'
+    content = content.strip()
+
+    with open(".changelog", 'w') as change_file:
+        change_file.write(content)
+
+# Compara la ultima modificacion del archivo, si hubo cambios o es un archivo nuevo actualiza el diccionario
+# Retorna si hubo modificaciones o no
+def compareLastModification(doc_name, dict_info):    
+    last_mod = time2str(getmtime(TIKZ_FOLDER + doc_name))
+    
+    if doc_name in dict_info:
+        if dict_info[doc_name] != last_mod:
+            dict_info[doc_name] = last_mod
+            return True
+        else:
+            return False
+    else:
+        dict_info[doc_name] = last_mod
+        return True
+
+
+def createTexFile(doc_name):
+    # Nombres sin extensiones y nombre completo
+    name = splitext(doc_name)[0]
     doc_full_name = TIKZ_FOLDER + doc_name
+
+    # Modificación del archivo de plantilla
     with open(TEMPLATE_NAME, 'r') as template_file:
         content = template_file.read()
     
-    replace_string = r"\\input{" + doc_full_name + '}'
-    content = re.sub(REPLACE_PATTERN, replace_string, content)
+    replace_string = doc_full_name
+    content = content.replace(REPLACE_PATTERN, replace_string)
     
-    with open(TEMPLATE_NAME, 'w') as template_file:
-        template_file.write(content)
+    # Crea un archivo tex por cada tikz
+    with open(PDF_FOLDER + f"{name}.tex", 'w') as tex_file:
+        tex_file.write(content)
+
+def compileTexFile(doc_name):
+    # Nombres sin extensiones y nombre completo
+    name = splitext(doc_name)[0]
+
+    command =  f"{COMPILER} {FLAGS} --output-directory={PDF_FOLDER} {PDF_FOLDER}{name}.tex > /dev/null"
     
-    # Compilado
-    doc_full_name = TIKZ_FOLDER + doc_name
-    command = f"{COMPILER} {FLAGS} {TEMPLATE_NAME}"
-    os.system(command)
+    result = subprocess.run(command, shell=True)
 
-    # Copiar los archivos en la carpeta correspondiente
-    os.system(f"mv {template_name}.pdf {PDF_FOLDER}/{name}.pdf" )
-
+    if result.returncode == 0:
+        print(f"Compilado {doc_name} con éxito")
+    else:
+        print(f"Problema con {doc_name}")
 
 
+
+files_names = listdir(TIKZ_FOLDER)
+mod_info = getModificationInfo()
+
+for doc_name in files_names:
+
+    createTexFile(doc_name)
+
+    modified = compareLastModification(doc_name, mod_info)
+
+    if(modified):
+        compileTexFile(doc_name)
+    else:
+        print(f"Archivo {doc_name} sin cambios")
+
+
+# Guardando info de modificacion
+saveModificationInfo(mod_info)
+
+# Delete aux files
+print("\nEliminando archivos auxiliares")
+subprocess.run(f"rm -f {PDF_FOLDER}*.aux", shell=True)
+subprocess.run(f"rm -f {PDF_FOLDER}*.log", shell=True)
+subprocess.run(f"rm -f {PDF_FOLDER}*.tex", shell=True)
